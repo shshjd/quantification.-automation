@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -359,23 +360,60 @@ function shouldProcess(name, extensionList) {{
     return macro
 
 
-def run_imagej_macro(imagej_executable: Path, macro_path: Path) -> None:
+def _imagej_command_variants(imagej_executable: Path, macro_path: Path) -> List[List[str]]:
+    """Return a list of candidate commands for running ImageJ headlessly."""
+
+    executable = str(imagej_executable)
+    commands: List[List[str]] = [
+        [executable, "--headless", "-batch", str(macro_path)],
+        [executable, "--ij2", "--headless", "--console", "-macro", str(macro_path)],
+        [executable, "-batch", str(macro_path)],
+    ]
+
+    # Remove duplicates while preserving order.
+    unique_commands: List[List[str]] = []
+    seen = set()
+    for command in commands:
+        key = tuple(command)
+        if key not in seen:
+            unique_commands.append(command)
+            seen.add(key)
+    return unique_commands
+
+
+def _format_command(command: Sequence[str]) -> str:
+    """Return a shell-escaped representation of a command."""
+
+    return " ".join(shlex.quote(token) for token in command)
+
+
+def run_imagej_macro(imagej_executable: Path, macro_path: Path, results_csv: Path) -> None:
     """Invoke ImageJ headlessly to execute the generated macro."""
 
-    command = [
-        str(imagej_executable),
-        "--ij2",
-        "--headless",
-        "--console",
-        "-macro",
-        str(macro_path),
-    ]
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:  # pragma: no cover - runtime guard
-        raise SystemExit(f"ImageJ executable not found: {imagej_executable}") from exc
-    except subprocess.CalledProcessError as exc:  # pragma: no cover - runtime guard
-        raise SystemExit("ImageJ reported an error while processing the images.") from exc
+    attempted_commands: List[str] = []
+
+    for command in _imagej_command_variants(imagej_executable, macro_path):
+        formatted = _format_command(command)
+        attempted_commands.append(formatted)
+        print(f"Running ImageJ command: {formatted}")
+        if results_csv.exists():
+            results_csv.unlink()
+        try:
+            subprocess.run(command, check=True)
+        except FileNotFoundError as exc:  # pragma: no cover - runtime guard
+            raise SystemExit(f"ImageJ executable not found: {imagej_executable}") from exc
+        except subprocess.CalledProcessError:
+            continue
+        if results_csv.exists():
+            return
+
+    command_list = "\n  ".join(attempted_commands)
+    raise SystemExit(
+        "ImageJ did not complete the macro in headless mode.\n"
+        "Tried the following commands:\n  "
+        f"{command_list}\n"
+        "Please verify that the selected executable supports headless operation."
+    )
 
 
 def find_images(folder: Path) -> List[Path]:
@@ -442,7 +480,7 @@ def process_images(
         macro_content = build_macro_content(folder, results_csv, threshold_config, measurement_defs)
         macro_path.write_text(macro_content, encoding="utf-8")
 
-        run_imagej_macro(imagej_executable, macro_path)
+        run_imagej_macro(imagej_executable, macro_path, results_csv)
 
         if not results_csv.exists():
             raise SystemExit("ImageJ did not produce a results file. Please check the console output for details.")
