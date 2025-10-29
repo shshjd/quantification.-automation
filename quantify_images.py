@@ -24,6 +24,12 @@ except ImportError as exc:  # pragma: no cover - import guard
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 REQUIRED_LAUNCHER_SUFFIX = ("Fiji.app", "Contents", "MacOS", "ImageJ-macosx")
 
+# Default paths tailored for the primary workflow environment. Adjust these values to
+# match your own system or leave them as ``None`` to disable the auto-filled prompts.
+DEFAULT_IMAGES_FOLDER: Optional[Path] = Path("/Users/oleksandrgorelik/Desktop/RAW")
+DEFAULT_FIJI_LAUNCHER: Optional[Path] = Path("/Applications/ImageJ.app/Contents/MacOS/ImageJ")
+DEFAULT_OUTPUT_DIRECTORY: Optional[Path] = Path("/Users/oleksandrgorelik/Desktop/Quantification data")
+
 
 @dataclass(frozen=True)
 class Measurement:
@@ -105,34 +111,44 @@ def ensure_trailing_separator(path: Path) -> str:
     return text
 
 
-def prompt_for_images_folder() -> Path:
+def prompt_for_images_folder(default_folder: Optional[Path] = None) -> Path:
     """Prompt the user for the folder that contains images to process."""
 
     while True:
-        user_input = input("Images folder: ").strip()
-        if not user_input:
+        prompt = "Images folder"
+        if default_folder is not None:
+            prompt += f" [{default_folder}]"
+        prompt += ": "
+
+        user_input = input(prompt).strip()
+        if not user_input and default_folder is None:
             print("An images folder is required. Please provide a valid directory.\n")
             continue
-        folder = Path(user_input).expanduser()
+        folder = default_folder if not user_input else Path(user_input).expanduser()
         if folder.is_dir():
             return folder.resolve()
         print("The specified folder does not exist or is not a directory. Please try again.\n")
 
 
-def prompt_for_fiji_launcher() -> Path:
+def prompt_for_fiji_launcher(default_launcher: Optional[Path] = None) -> Path:
     """Prompt for the Fiji launcher path and validate that it is macOS-compatible."""
 
     print("\nFiji launcher path must end with Fiji.app/Contents/MacOS/ImageJ-macosx.")
 
     while True:
-        user_input = input("Fiji launcher path: ").strip()
-        if not user_input:
+        prompt = "Fiji launcher path"
+        if default_launcher is not None:
+            prompt += f" [{default_launcher}]"
+        prompt += ": "
+
+        user_input = input(prompt).strip()
+        if not user_input and default_launcher is None:
             print(
                 "The Fiji launcher path is required. Provide the full path ending with "
                 "Fiji.app/Contents/MacOS/ImageJ-macosx.\n"
             )
             continue
-        candidate = Path(user_input).expanduser()
+        candidate = default_launcher if not user_input else Path(user_input).expanduser()
         if candidate.name == "JavaApplicationStub":
             print(
                 "The JavaApplicationStub launcher is not supported. Use "
@@ -227,7 +243,7 @@ def prompt_output_path(default_path: Path) -> Path:
     print(f"Default: {default_path}")
 
     while True:
-        user_input = input("Excel output path: ").strip()
+        user_input = input(f"Excel output path [{default_path}]: ").strip()
         if not user_input:
             return default_path
         path = Path(user_input).expanduser()
@@ -249,11 +265,14 @@ def gather_configuration() -> RunConfiguration:
     """Collect all required inputs from the user before running the workflow."""
 
     print("Image Quantification Automation (Fiji Headless Edition)\n" + "=" * 58)
-    images_folder = prompt_for_images_folder()
-    fiji_launcher = prompt_for_fiji_launcher()
+    images_folder = prompt_for_images_folder(DEFAULT_IMAGES_FOLDER)
+    fiji_launcher = prompt_for_fiji_launcher(DEFAULT_FIJI_LAUNCHER)
     threshold_config = prompt_threshold_method()
 
-    default_output = images_folder / "quantification_measurements.xlsx"
+    if DEFAULT_OUTPUT_DIRECTORY is not None:
+        default_output = DEFAULT_OUTPUT_DIRECTORY / "quantification_measurements.xlsx"
+    else:
+        default_output = images_folder / "quantification_measurements.xlsx"
     output_path = prompt_output_path(default_output)
 
     print("\nConfiguration Summary:")
