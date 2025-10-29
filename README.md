@@ -1,69 +1,59 @@
-# ImageJ Automation Tool for macOS
+# ImageJ Mean Intensity Automation
 
-This repository provides a command-line helper that automates ImageJ measurements on macOS.
-The tool launches the user’s own `ImageJ.app` in headless mode when possible, or falls back to
-AppleScript-driven batch mode when headless execution is unsupported. It generates an ImageJ
-macro that processes every image in a chosen folder, converts them to binary masks, computes
-measurements, and saves the resulting table to a CSV file.
+This project provides a cross-platform command-line helper that drives
+[ImageJ](https://imagej.nih.gov/ij/) (or Fiji) in headless mode to collect the
+mean pixel intensity for every image in a folder. The measurements are exported
+to a Microsoft Excel workbook so they can be shared or analysed further.
 
 ## Requirements
 
-* macOS with [ImageJ](https://imagej.nih.gov/ij/) installed (typically `/Applications/ImageJ.app`).
-* Python 3.9 or later.
+* Python 3.9 or newer
+* ImageJ or Fiji installation that supports the `--headless` flag
+* The Python packages listed in [`requirements.txt`](requirements.txt)
 
-No third-party Python packages are required.
+## Installation
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
 ## Usage
 
-1. Ensure ImageJ launches correctly on your Mac.
-2. Collect the images you want to measure inside a single folder.
-3. Run the automation script:
+```
+python -m src.imagej_mean_intensity INPUT_DIR OUTPUT.xlsx --imagej /path/to/ImageJ
+```
 
-   ```bash
-   python3 quantify_images.py
-   ```
+* `INPUT_DIR` – directory that contains the images to process (no recursion).
+* `OUTPUT.xlsx` – destination Excel workbook (will be overwritten).
+* `--imagej` – path to the ImageJ executable. You can set the environment
+  variable `IMAGEJ_PATH` instead of passing this flag on every run.
 
-4. Answer the interactive prompts:
-   * **ImageJ path** – The full path to the ImageJ executable inside the app bundle
-     (for example `/Applications/ImageJ.app/Contents/MacOS/ImageJ`). The default is auto-detected
-     when the executable exists at the standard location.
-   * **Image folder** – Directory that contains the images to process. The tool scans only the
-     top-level files with the extensions `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, or `.bmp`.
-   * **Output CSV** – Destination for the measurement table. The file is overwritten if it already
-     exists.
-   * **Threshold method** – Choose between Otsu automatic thresholding or a user-supplied manual
-     threshold (0–255).
+The tool filters files by extension (TIFF, PNG, JPEG, BMP by default). You can
+override the list of extensions with `--extensions .tif .tiff`.
 
-5. The script creates a temporary macro with the requested configuration and attempts to run:
-   * **Headless mode** – Executes ImageJ with the command
-     `/Applications/ImageJ.app/Contents/MacOS/ImageJ --headless --macro <macro.ijm>`.
-     On success, the CSV file is validated to confirm measurement data is present.
-   * **AppleScript fallback** – If headless mode fails or produces no data, the tool offers to
-     automate ImageJ through AppleScript. The automation opens ImageJ, triggers **File → Run
-     Macro…**, waits for the results file to be written, and quits ImageJ automatically.
+### Example
 
-6. After ImageJ finishes, the script verifies that the CSV exists and contains measurement data
-   before reporting success.
+```bash
+python -m src.imagej_mean_intensity ./images results.xlsx --imagej ~/Fiji.app/ImageJ-linux64
+```
 
-## Error handling
+### Dry runs
 
-If ImageJ cannot run headlessly or returns without producing data, the tool prints the exact
-command it attempted and suggests the AppleScript fallback. AppleScript automation is also
-validated—if the CSV is missing or empty, the script reports the failure so you can investigate
-further.
+Add `--dry-run` to see the ImageJ command that would be executed without
+creating any files. Combine it with `--keep-csv` if you want to retain the raw
+CSV produced by ImageJ alongside the Excel workbook.
 
-## Macro workflow
+## How it works
 
-The generated ImageJ macro performs the following steps for every supported file in the selected
-folder:
+1. The script discovers eligible images in the folder.
+2. It writes a temporary ImageJ macro that measures each image's mean intensity.
+3. ImageJ runs headlessly with the generated macro and exports a CSV results
+   table.
+4. The CSV is converted to an Excel workbook (`.xlsx`) containing two columns:
+   * **Image** – original filename
+   * **Mean** – the mean pixel intensity reported by ImageJ
 
-1. Open the image.
-2. Convert it to 8-bit.
-3. Apply the chosen threshold (Otsu or manual), converting the image to a binary mask.
-4. Convert the mask to 32-bit.
-5. Run **Measure** to capture area, mean, standard deviation, minimum, and maximum statistics.
-6. After all images are processed, save the Results table to the requested CSV file.
-
-This ensures the automation finishes cleanly—regardless of whether ImageJ succeeds in headless
-mode or requires GUI automation—while leaving behind a verified measurement CSV for downstream
-analysis.
+If ImageJ fails or produces no measurements, the script reports the error so
+you can adjust the inputs and try again.
