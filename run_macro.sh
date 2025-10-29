@@ -1,12 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR}"
-MACRO_PATH="${PROJECT_ROOT}/macros/mean_intensity.ijm"
-INPUT_DIR="${PROJECT_ROOT}/input_images"
-OUTPUT_DIR="${PROJECT_ROOT}/results"
-LOG_DIR="${PROJECT_ROOT}/run_logs"
+prompt_directory() {
+  local prompt_text="$1"
+  local default_value="${2-}"
+  local response
+  while true; do
+    if [[ -n "$default_value" ]]; then
+      read -r -p "$prompt_text [$default_value]: " response || true
+      response="${response:-$default_value}"
+    else
+      read -r -p "$prompt_text: " response || true
+    fi
+    response="${response//\~/$(printf '%s' "$HOME")}" # expand leading ~
+    if [[ -z "$response" ]]; then
+      echo "Please provide a directory path." >&2
+      continue
+    fi
+    response="$(python3 - <<'PY'
+import os, sys
+path = sys.stdin.read().strip()
+print(os.path.abspath(os.path.expanduser(path)))
+PY
+<<<"$response")"
+    if [[ -d "$response" ]]; then
+      echo "$response"
+      return 0
+    fi
+    read -r -p "Directory does not exist. Create it? [y/N]: " create || true
+    case "$create" in
+      [yY][eE][sS]|[yY])
+        mkdir -p "$response"
+        echo "$response"
+        return 0
+        ;;
+      *)
+        echo "Let's try again." >&2
+        ;;
+    esac
+  done
+}
 
 if [[ -z "${IMAGEJ_APP:-}" ]]; then
   IMAGEJ_APP="/Applications/ImageJ/ImageJ.app/Contents/MacOS/ImageJ"
@@ -18,8 +51,16 @@ if [[ ! -x "${IMAGEJ_APP}" ]]; then
   exit 1
 fi
 
-mkdir -p "${INPUT_DIR}" "${OUTPUT_DIR}" "${LOG_DIR}"
+input_dir="$(prompt_directory "Enter the input images directory" "${PWD}/input_images")"
+output_dir="$(prompt_directory "Enter the results directory" "${PWD}/results")"
+log_dir="$(prompt_directory "Enter the run logs directory" "${PWD}/run_logs")"
 
-ARGS="input=${INPUT_DIR},output=${OUTPUT_DIR},log=${LOG_DIR}"
+macro_path="$(python3 - <<'PY'
+import os
+print(os.path.abspath(os.path.join(os.path.dirname(__file__), 'macros', 'mean_intensity.ijm')))
+PY
+)"
 
-"${IMAGEJ_APP}" --headless -macro "${MACRO_PATH}" "${ARGS}"
+args="input=${input_dir},output=${output_dir},log=${log_dir}"
+
+"${IMAGEJ_APP}" --headless -macro "${macro_path}" "${args}"

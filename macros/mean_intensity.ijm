@@ -2,20 +2,12 @@
 // Batch mean intensity measurement macro for ImageJ headless execution.
 //
 // Usage examples:
-//   ImageJ --headless -macro /path/to/macros/mean_intensity.ijm
-//   ImageJ --headless -macro /path/to/macros/mean_intensity.ijm "input=/path/to/input,output=/path/to/results"
-//   ImageJ --headless -macro /path/to/macros/mean_intensity.ijm "input=/input,output=/output,log=/logs"
+//   ImageJ --headless -macro /path/to/macros/mean_intensity.ijm "input=/path/to/input,output=/path/to/results,log=/path/to/logs"
 //
-// Arguments (optional, comma separated):
+// Arguments (required, comma separated):
 //   input  - Directory that contains source images.
 //   output - Directory where the results CSV will be written.
 //   log    - Directory where run logs will be appended.
-//
-// When arguments are omitted the macro uses the project directories
-// located one level above the macro file:
-//   ../input_images/
-//   ../results/
-//   ../run_logs/
 //
 // The macro will:
 //   * Configure measurement options for mean intensity with six decimals.
@@ -28,20 +20,15 @@
 macro "Batch Mean Intensity" {
     setBatchMode(true);
 
-    defaultRoot = File.getParent(getDirectory("macro"));
-    defaultInput = defaultRoot + "input_images" + File.separator;
-    defaultOutput = defaultRoot + "results" + File.separator;
-    defaultLog = defaultRoot + "run_logs" + File.separator;
-
     args = getArgument();
-    parsed = parseArguments(args, defaultInput, defaultOutput, defaultLog);
+    parsed = parseArguments(args);
     inputDir = parsed[0];
     outputDir = parsed[1];
     logDir = parsed[2];
 
-    ensureDirectory(inputDir);
-    ensureDirectory(outputDir);
-    ensureDirectory(logDir);
+    inputDir = requireExistingDirectory("input", inputDir);
+    outputDir = ensureDirectory("output", outputDir);
+    logDir = ensureDirectory("log", logDir);
 
     run("Clear Results");
     run("Set Measurements...", "mean redirect=None decimal=6");
@@ -71,8 +58,9 @@ macro "Batch Mean Intensity" {
     }
 
     if (processedCount == 0) {
-        print("No image files found in " + inputDir);
-        appendLog(logDir, "No image files processed from " + inputDir);
+        message = "No image files found in " + inputDir;
+        print(message);
+        appendLog(logDir, message);
     }
 
     resultsPath = buildResultsPath(outputDir);
@@ -82,10 +70,10 @@ macro "Batch Mean Intensity" {
     setBatchMode(false);
 }
 
-function parseArguments(argString, defaultInput, defaultOutput, defaultLog) {
-    inputDir = defaultInput;
-    outputDir = defaultOutput;
-    logDir = defaultLog;
+function parseArguments(argString) {
+    inputDir = "";
+    outputDir = "";
+    logDir = "";
 
     if (argString != "") {
         entries = split(argString, ",");
@@ -113,9 +101,26 @@ function parseArguments(argString, defaultInput, defaultOutput, defaultLog) {
     return newArray(inputDir, outputDir, logDir);
 }
 
-function ensureDirectory(path) {
+function requireExistingDirectory(label, path) {
+    if (path == "") {
+        print("Error: missing '" + label + "' directory argument.");
+        exit();
+    }
+    if (!File.exists(path)) {
+        print("Error: '" + path + "' does not exist.");
+        exit();
+    }
+    return path;
+}
+
+function ensureDirectory(label, path) {
+    if (path == "") {
+        print("Error: missing '" + label + "' directory argument.");
+        exit();
+    }
     if (!File.exists(path))
         File.makeDirectory(path);
+    return path;
 }
 
 function ensureTrailingSeparator(path) {
