@@ -1,28 +1,19 @@
 # Image Quantification Automation
 
-<<<<<<< codex/create-macos-image-quantification-automation-bl5jbk
 This repository contains a command-line tool for macOS that automates an image quantification workflow **using your existing Ima
-geJ or Fiji installation**. The program collects every piece of configuration it needs—ImageJ location, image folder, thresholdin
+geJ installation**. The program collects every piece of configuration it needs—ImageJ location, image folder, thresholdin
 g method, measurements, and Excel export destination—before a single image is processed.
 
 ## Requirements
 
-1. A working copy of [ImageJ](https://imagej.nih.gov/ij/) or [Fiji](https://imagej.net/software/fiji/) installed on your Mac. The
+1. A working copy of [ImageJ](https://imagej.nih.gov/ij/) installed on your Mac. The
  script runs ImageJ headlessly, so make sure it launches normally before using the automation.
 2. Python 3.9+ with the `openpyxl` package:
-=======
-This repository contains a command-line tool for macOS that automates a common image quantification workflow. The program walks you through configuration (input folder, thresholding method, measurements, and Excel export location) before processing images.
-
-## Requirements
-
-Install the Python dependencies:
->>>>>>> main
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-<<<<<<< codex/create-macos-image-quantification-automation-bl5jbk
 > 💡 **Tip:** If you do not already have the package installed system-wide, consider creating a virtual environment first:
 >
 > ```bash
@@ -33,26 +24,20 @@ python3 -m pip install -r requirements.txt
 
 ## Usage
 
-1. Confirm ImageJ or Fiji opens correctly on your machine (double-click the application and make sure it starts without errors).
+1. Confirm ImageJ opens correctly on your machine (double-click the application and make sure it starts without errors).
 2. Place all images you want to quantify in a single folder. Supported formats include `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`,
  and `.bmp`.
 3. Run the script and answer the prompts:
-=======
-## Usage
-
-Run the script and answer the prompts to configure the workflow:
->>>>>>> main
 
 ```bash
 python3 quantify_images.py
 ```
 
-<<<<<<< codex/create-macos-image-quantification-automation-bl5jbk
 ### Interactive configuration walkthrough
 
 When you run the command, the script asks a series of questions so it can fully configure itself before launching ImageJ:
 
-1. **ImageJ application path** – Paste the `.app` bundle (for example `/Applications/Fiji.app`) or the executable inside `Content
+1. **ImageJ application path** – Paste the `.app` bundle (for example `/Applications/ImageJ.app`) or the executable inside `Content
 s/MacOS`. The script automatically resolves the actual binary that will be launched headlessly.
 2. **Image folder** – Provide the directory containing the images to process. Only the top-level files in that folder are touched
 ; subdirectories are ignored.
@@ -96,15 +81,3 @@ You can re-run the program on the same folder at any time—existing Excel files
 
 If you need to adapt the workflow (for example, additional ImageJ measurements or nested folder traversal), feel free to share th
 e desired changes and they can be incorporated into a follow-up script update.
-=======
-The program will:
-
-1. Ask for the folder containing images.
-2. Ask any additional questions needed to fully configure the run, including threshold method, measurements, and Excel output path.
-3. Convert each image to grayscale (black and white) and, when thresholding is enabled, create a binary mask.
-4. Convert the processed pixels to 32-bit floating point data.
-5. Compute the requested measurements for every image.
-6. Export the measurements to an Excel workbook.
-
-Supported image formats include PNG, JPG, JPEG, TIFF, and BMP. The resulting Excel workbook is saved to the location you choose during configuration.
->>>>>>> main
