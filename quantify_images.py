@@ -1,79 +1,123 @@
 #!/usr/bin/env python3
-"""Command line tool for automating an ImageJ-based image quantification workflow on macOS."""
+"""Command line tool for automating an image quantification workflow on macOS."""
 
 from __future__ import annotations
 
-import csv
-import json
-import os
-import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
+
+try:
+    import numpy as np
+except ImportError as exc:  # pragma: no cover - import guard
+    raise SystemExit("numpy is required to run this program. Please install it before continuing.") from exc
 
 try:
     from openpyxl import Workbook
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("openpyxl is required to run this program. Please install it before continuing.") from exc
 
+try:
+    from PIL import Image
+except ImportError as exc:  # pragma: no cover - import guard
+    raise SystemExit("Pillow is required to run this program. Please install it before continuing.") from exc
+
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
+MeasurementFunc = Callable[[np.ndarray, Optional[np.ndarray]], float]
 
-@dataclass(frozen=True)
+
+def _masked_values(data: np.ndarray, mask: Optional[np.ndarray]) -> np.ndarray:
+    """Return pixels included in the mask (or the full image when mask is None)."""
+
+    if mask is None:
+        return data
+    return data[mask]
+
+
+def _mean_intensity(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    values = _masked_values(data, mask)
+    if values.size == 0:
+        return float("nan")
+    return float(values.mean())
+
+
+def _std_intensity(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    values = _masked_values(data, mask)
+    if values.size == 0:
+        return float("nan")
+    return float(values.std(ddof=0))
+
+
+def _min_intensity(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    values = _masked_values(data, mask)
+    if values.size == 0:
+        return float("nan")
+    return float(values.min())
+
+
+def _max_intensity(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    values = _masked_values(data, mask)
+    if values.size == 0:
+        return float("nan")
+    return float(values.max())
+
+
+def _sum_intensity(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    values = _masked_values(data, mask)
+    if values.size == 0:
+        return 0.0
+    return float(values.sum())
+
+
+def _foreground_area(data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+    if mask is None:
+        return float(data.size)
+    return float(mask.sum())
+
+
 class Measurement:
-    """Description of a measurement available in ImageJ."""
+    """Representation of a measurement that can be applied to an image array."""
 
-    key: str
-    display_name: str
-    description: str
-    imagej_option: str
-    result_column: str
+    def __init__(self, name: str, description: str, func: MeasurementFunc) -> None:
+        self.name = name
+        self.description = description
+        self.func = func
+
+    def compute(self, image_data: np.ndarray, mask: Optional[np.ndarray]) -> float:
+        return float(self.func(image_data, mask))
 
 
 MEASUREMENTS: Dict[str, Measurement] = {
     "mean_intensity": Measurement(
-        key="mean_intensity",
-        display_name="Mean Intensity",
-        description="Average pixel intensity (ImageJ \"Mean\").",
-        imagej_option="mean",
-        result_column="Mean",
+        name="Mean Intensity",
+        description="Average value of all pixels (or masked region) in 32-bit space.",
+        func=_mean_intensity,
     ),
     "std_dev": Measurement(
-        key="std_dev",
-        display_name="Standard Deviation",
-        description="Standard deviation of pixel intensities (ImageJ \"StdDev\").",
-        imagej_option="standard",
-        result_column="StdDev",
+        name="Standard Deviation",
+        description="Standard deviation of pixel intensities.",
+        func=_std_intensity,
     ),
     "min_intensity": Measurement(
-        key="min_intensity",
-        display_name="Minimum Intensity",
-        description="Minimum pixel value (ImageJ \"Min\").",
-        imagej_option="min",
-        result_column="Min",
+        name="Minimum Intensity",
+        description="Minimum pixel value.",
+        func=_min_intensity,
     ),
     "max_intensity": Measurement(
-        key="max_intensity",
-        display_name="Maximum Intensity",
-        description="Maximum pixel value (ImageJ \"Max\").",
-        imagej_option="max",
-        result_column="Max",
+        name="Maximum Intensity",
+        description="Maximum pixel value.",
+        func=_max_intensity,
     ),
     "sum_intensity": Measurement(
-        key="sum_intensity",
-        display_name="Integrated Density",
-        description="Integrated density (ImageJ \"IntDen\").",
-        imagej_option="integrated",
-        result_column="IntDen",
+        name="Integrated Intensity",
+        description="Sum of all pixel intensities.",
+        func=_sum_intensity,
     ),
     "foreground_area": Measurement(
-        key="foreground_area",
-        display_name="Foreground Area (px)",
-        description="Pixel area of the measured region (ImageJ \"Area\").",
-        imagej_option="area",
-        result_column="Area",
+        name="Foreground Area (px)",
+        description="Number of pixels classified as foreground by the threshold.",
+        func=_foreground_area,
     ),
 }
 
@@ -91,47 +135,6 @@ class ThresholdConfig:
         if self.method == "manual":
             return f"Manual threshold at {self.value}"
         return self.method.capitalize()
-
-
-def prompt_for_imagej_executable() -> Path:
-    """Prompt the user for the ImageJ (or Fiji) executable path."""
-
-    print("Provide the path to your ImageJ or Fiji installation (e.g. /Applications/Fiji.app).")
-    print("You can paste the .app bundle or the executable inside Contents/MacOS.\n")
-
-    while True:
-        user_input = input("ImageJ application path: ").strip()
-        if not user_input:
-            print("An ImageJ path is required. Please try again.\n")
-            continue
-        candidate = Path(user_input).expanduser().resolve()
-        executable = resolve_imagej_executable(candidate)
-        if executable is None:
-            print("Unable to locate the ImageJ executable at that path. Please try again.\n")
-            continue
-        if not os.access(executable, os.X_OK):
-            print("The resolved ImageJ executable is not runnable. Please choose another path.\n")
-            continue
-        return executable
-
-
-def resolve_imagej_executable(path: Path) -> Optional[Path]:
-    """Resolve the actual executable inside an ImageJ/Fiji installation."""
-
-    if path.is_file():
-        return path
-
-    if path.is_dir():
-        candidates = [
-            path / "Contents" / "MacOS" / "ImageJ-macosx",
-            path / "Contents" / "MacOS" / "ImageJ",
-            path / "Contents" / "MacOS" / "JavaApplicationStub",
-        ]
-        for candidate in candidates:
-            if candidate.is_file():
-                return candidate
-
-    return None
 
 
 def prompt_for_directory(prompt: str) -> Path:
@@ -153,7 +156,7 @@ def prompt_threshold_method() -> ThresholdConfig:
 
     print("\nThreshold methods available:")
     print("  none    - Keep images in grayscale only.")
-    print("  otsu    - Automatically determine a threshold using ImageJ's Otsu implementation.")
+    print("  otsu    - Automatically determine a threshold using Otsu's method.")
     print("  manual  - Specify a fixed threshold between 0 and 255.")
 
     while True:
@@ -225,11 +228,67 @@ def prompt_output_path(default_path: Path) -> Path:
         return path
 
 
-def gather_configuration() -> Tuple[Path, Path, ThresholdConfig, List[str], Path]:
+def threshold_otsu(gray_array: np.ndarray) -> int:
+    """Compute Otsu's threshold for a grayscale image."""
+
+    histogram, _ = np.histogram(gray_array.ravel(), bins=256, range=(0, 256))
+    total = histogram.sum()
+    if total == 0:
+        return 0
+
+    sum_total = np.dot(np.arange(256), histogram)
+    sum_background = 0.0
+    weight_background = 0.0
+    max_variance = -1.0
+    threshold = 0
+
+    for level in range(256):
+        weight_background += histogram[level]
+        if weight_background == 0:
+            continue
+        weight_foreground = total - weight_background
+        if weight_foreground == 0:
+            break
+        sum_background += level * histogram[level]
+        mean_background = sum_background / weight_background
+        mean_foreground = (sum_total - sum_background) / weight_foreground
+        between_var = weight_background * weight_foreground * (mean_background - mean_foreground) ** 2
+        if between_var > max_variance:
+            max_variance = between_var
+            threshold = level
+    return threshold
+
+
+def apply_threshold(image: Image.Image, config: ThresholdConfig) -> Tuple[Image.Image, Optional[np.ndarray], Optional[int]]:
+    """Apply thresholding based on the user's configuration."""
+
+    gray = image.convert("L")
+    gray_array = np.array(gray, dtype=np.uint8)
+
+    if config.method == "none":
+        return gray, None, None
+
+    if config.method == "otsu":
+        threshold_value = threshold_otsu(gray_array)
+    else:
+        threshold_value = config.value if config.value is not None else 0
+
+    mask = gray_array >= threshold_value
+    binary_array = np.where(mask, 255, 0).astype(np.uint8)
+    return Image.fromarray(binary_array, mode="L"), mask, int(threshold_value)
+
+
+def convert_to_float32(image: Image.Image) -> np.ndarray:
+    """Convert a PIL image to a 32-bit floating point numpy array."""
+
+    array = np.array(image, dtype=np.float32)
+    return array
+
+
+def gather_configuration() -> Tuple[Path, ThresholdConfig, List[str], Path]:
     """Collect all required inputs from the user before running the workflow."""
 
-    print("Image Quantification Automation (ImageJ Edition)\n" + "=" * 48)
-    imagej_executable = prompt_for_imagej_executable()
+    print("Image Quantification Automation\n" + "=" * 34)
     image_folder = prompt_for_directory("Enter the folder containing your images: ")
 
     threshold_config = prompt_threshold_method()
@@ -239,7 +298,6 @@ def gather_configuration() -> Tuple[Path, Path, ThresholdConfig, List[str], Path
     output_path = prompt_output_path(default_output)
 
     print("\nConfiguration Summary:")
-    print(f"  ImageJ executable: {imagej_executable}")
     print(f"  Image folder:      {image_folder}")
     print(f"  Threshold method:  {threshold_config}")
     print(f"  Measurements:      {', '.join(measurement_keys)}")
@@ -250,246 +308,84 @@ def gather_configuration() -> Tuple[Path, Path, ThresholdConfig, List[str], Path
         print("Operation cancelled by user.")
         raise SystemExit(0)
 
-    return imagej_executable, image_folder, threshold_config, measurement_keys, output_path
-
-
-def ensure_trailing_separator(path: Path) -> str:
-    """Return the path as a string with a trailing separator for ImageJ."""
-
-    text = str(path)
-    if not text.endswith("/"):
-        text += "/"
-    return text
-
-
-def build_measurement_option_string(measurement_defs: Sequence[Measurement]) -> str:
-    """Build the option string passed to ImageJ's Set Measurements command."""
-
-    tokens: List[str] = []
-    seen = set()
-    for measurement in measurement_defs:
-        option = measurement.imagej_option
-        if option not in seen:
-            tokens.append(option)
-            seen.add(option)
-    tokens.extend(["display", "redirect=None", "decimal=3"])
-    return " ".join(tokens)
-
-
-def build_macro_content(
-    input_dir: Path,
-    results_csv: Path,
-    threshold_config: ThresholdConfig,
-    measurement_defs: Sequence[Measurement],
-) -> str:
-    """Generate the ImageJ macro that performs the batch quantification."""
-
-    measurement_options = build_measurement_option_string(measurement_defs)
-    extension_list = ";".join(sorted(ext.lower() for ext in SUPPORTED_EXTENSIONS))
-    manual_value = threshold_config.value if threshold_config.value is not None else 0
-
-    macro = f"""// Auto-generated macro created by quantify_images.py
-inputDir = {json.dumps(ensure_trailing_separator(input_dir))};
-outputFile = {json.dumps(str(results_csv))};
-thresholdMethod = {json.dumps(threshold_config.method)};
-manualValue = {manual_value};
-extensionList = {json.dumps(extension_list)};
-measurementOptions = {json.dumps(measurement_options)};
-
-run(\"Set Measurements...\", measurementOptions);
-setBatchMode(true);
-run(\"Clear Results\");
-
-list = getFileList(inputDir);
-for (i = 0; i < list.length; i++) {{
-    name = list[i];
-    if (endsWith(name, \"/\"))
-        continue;
-    if (!shouldProcess(name, extensionList))
-        continue;
-    path = inputDir + name;
-    open(path);
-    run(\"8-bit\");
-    setOption(\"BlackBackground\", false);
-    thresholdLabel = \"-\";
-    if (thresholdMethod == \"otsu\") {{
-        setAutoThreshold(\"Otsu\");
-        setOption(\"Limit to threshold\", true);
-        getThreshold(lower, upper);
-        thresholdLabel = \"\" + lower;
-    }} else if (thresholdMethod == \"manual\") {{
-        lower = manualValue;
-        if (lower < 0)
-            lower = 0;
-        if (lower > 255)
-            lower = 255;
-        setThreshold(lower, 255);
-        setOption(\"Limit to threshold\", true);
-        thresholdLabel = \"\" + lower;
-    }} else {{
-        resetThreshold();
-        setOption(\"Limit to threshold\", false);
-    }}
-    run(\"32-bit\");
-    run(\"Measure\");
-    row = nResults - 1;
-    setResult(\"Image\", row, name);
-    setResult(\"Threshold Applied\", row, thresholdLabel);
-    updateResults();
-    close();
-}}
-
-saveAs(\"Results\", outputFile);
-run(\"Clear Results\");
-setBatchMode(false);
-
-function shouldProcess(name, extensionList) {{
-    lower = toLowerCase(name);
-    exts = split(extensionList, \";\");
-    for (j = 0; j < exts.length; j++) {{
-        ext = exts[j];
-        if (ext == \"\")
-            continue;
-        if (endsWith(lower, ext))
-            return true;
-    }}
-    return false;
-}}
-"""
-    return macro
-
-
-def run_imagej_macro(imagej_executable: Path, macro_path: Path) -> None:
-    """Invoke ImageJ headlessly to execute the generated macro."""
-
-    command = [
-        str(imagej_executable),
-        "--ij2",
-        "--headless",
-        "--console",
-        "-macro",
-        str(macro_path),
-    ]
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:  # pragma: no cover - runtime guard
-        raise SystemExit(f"ImageJ executable not found: {imagej_executable}") from exc
-    except subprocess.CalledProcessError as exc:  # pragma: no cover - runtime guard
-        raise SystemExit("ImageJ reported an error while processing the images.") from exc
+    return image_folder, threshold_config, measurement_keys, output_path
 
 
 def find_images(folder: Path) -> List[Path]:
-    """Return a sorted list of supported image files within the folder."""
+    """Return a sorted list of image files within the folder."""
 
     return sorted(
         [path for path in folder.iterdir() if path.suffix.lower() in SUPPORTED_EXTENSIONS and path.is_file()]
     )
 
 
-def safe_float(value: Optional[str]) -> float:
-    """Convert a string to float, returning NaN when conversion fails."""
+def compute_measurements(image_data: np.ndarray, mask: Optional[np.ndarray], measurement_keys: Sequence[str]) -> Dict[str, float]:
+    """Compute the requested measurements for an image."""
 
-    if value is None or value == "":
-        return float("nan")
-    try:
-        return float(value)
-    except ValueError:
-        return float("nan")
-
-
-def parse_results_csv(results_csv: Path, measurement_defs: Sequence[Measurement]) -> Tuple[List[str], List[str], List[Dict[str, float]]]:
-    """Load measurement results produced by ImageJ."""
-
-    image_names: List[str] = []
-    thresholds: List[str] = []
-    measurements: List[Dict[str, float]] = []
-
-    with results_csv.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            image_name = row.get("Image") or row.get("Label") or ""
-            threshold_value = row.get("Threshold Applied", "-")
-            measurement_row: Dict[str, float] = {}
-            for measurement in measurement_defs:
-                measurement_row[measurement.display_name] = safe_float(row.get(measurement.result_column))
-            image_names.append(image_name)
-            thresholds.append(threshold_value if threshold_value else "-")
-            measurements.append(measurement_row)
-
-    return image_names, thresholds, measurements
+    results: Dict[str, float] = {}
+    for key in measurement_keys:
+        measurement = MEASUREMENTS[key]
+        try:
+            value = measurement.compute(image_data, mask)
+        except ValueError:
+            value = float("nan")
+        results[measurement.name] = value
+    return results
 
 
-def process_images(
-    imagej_executable: Path,
-    folder: Path,
-    threshold_config: ThresholdConfig,
-    measurement_keys: Sequence[str],
-) -> Tuple[List[Dict[str, float]], List[str], List[str]]:
-    """Process the images with ImageJ and return measurement data."""
+def export_to_excel(results: Sequence[Dict[str, float]], image_names: Sequence[str], output_path: Path, *, threshold_details: Sequence[Optional[int]]) -> None:
+    """Write measurement results to an Excel workbook."""
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Measurements"
+
+    measurement_names: List[str] = []
+    if results:
+        measurement_names = list(results[0].keys())
+
+    headers = ["Image", "Threshold Applied"] + measurement_names
+    sheet.append(headers)
+
+    for name, threshold_value, measurement in zip(image_names, threshold_details, results):
+        row = [name, threshold_value if threshold_value is not None else "-"]
+        row.extend(measurement.get(metric, float("nan")) for metric in measurement_names)
+        sheet.append(row)
+
+    workbook.save(output_path)
+
+
+def process_images(folder: Path, threshold_config: ThresholdConfig, measurement_keys: Sequence[str]) -> Tuple[List[Dict[str, float]], List[str], List[Optional[int]]]:
+    """Process each image in the folder and return measurements and metadata."""
 
     image_files = find_images(folder)
     if not image_files:
         print("No supported image files were found in the selected folder.")
         raise SystemExit(1)
 
-    measurement_defs = [MEASUREMENTS[key] for key in measurement_keys]
+    measurement_results: List[Dict[str, float]] = []
+    image_names: List[str] = []
+    thresholds_used: List[Optional[int]] = []
 
-    with TemporaryDirectory() as tempdir:
-        temp_dir = Path(tempdir)
-        macro_path = temp_dir / "batch_quantify.ijm"
-        results_csv = temp_dir / "imagej_results.csv"
+    for image_path in image_files:
+        print(f"Processing {image_path.name} ...")
+        with Image.open(image_path) as original_image:
+            processed_image, mask, threshold_value = apply_threshold(original_image, threshold_config)
+            float_data = convert_to_float32(processed_image)
+            measurements = compute_measurements(float_data, mask, measurement_keys)
 
-        macro_content = build_macro_content(folder, results_csv, threshold_config, measurement_defs)
-        macro_path.write_text(macro_content, encoding="utf-8")
+        measurement_results.append(measurements)
+        image_names.append(image_path.name)
+        thresholds_used.append(threshold_value)
 
-        run_imagej_macro(imagej_executable, macro_path)
-
-        if not results_csv.exists():
-            raise SystemExit("ImageJ did not produce a results file. Please check the console output for details.")
-
-        image_names, thresholds, measurement_results = parse_results_csv(results_csv, measurement_defs)
-
-    if not image_names:
-        print("ImageJ did not return any measurement results.")
-        raise SystemExit(1)
-
-    return measurement_results, image_names, thresholds
-
-
-def export_to_excel(
-    results: Sequence[Dict[str, float]],
-    image_names: Sequence[str],
-    thresholds: Sequence[str],
-    output_path: Path,
-    measurement_keys: Sequence[str],
-) -> None:
-    """Write measurement results to an Excel workbook."""
-
-    measurement_defs = [MEASUREMENTS[key] for key in measurement_keys]
-
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Measurements"
-
-    headers = ["Image", "Threshold Applied"] + [measurement.display_name for measurement in measurement_defs]
-    sheet.append(headers)
-
-    for name, threshold_value, measurement in zip(image_names, thresholds, results):
-        row = [name, threshold_value]
-        for measurement_def in measurement_defs:
-            row.append(measurement.get(measurement_def.display_name, float("nan")))
-        sheet.append(row)
-
-    workbook.save(output_path)
+    return measurement_results, image_names, thresholds_used
 
 
 def main() -> None:
     try:
-        imagej_executable, folder, threshold_config, measurement_keys, output_path = gather_configuration()
-        results, image_names, thresholds = process_images(
-            imagej_executable, folder, threshold_config, measurement_keys
-        )
-        export_to_excel(results, image_names, thresholds, output_path, measurement_keys)
+        folder, threshold_config, measurement_keys, output_path = gather_configuration()
+        results, image_names, thresholds_used = process_images(folder, threshold_config, measurement_keys)
+        export_to_excel(results, image_names, output_path, threshold_details=thresholds_used)
     except KeyboardInterrupt:  # pragma: no cover - interactive guard
         print("\nOperation cancelled by user.")
         sys.exit(1)
