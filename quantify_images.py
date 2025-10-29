@@ -302,6 +302,7 @@ setBatchMode(true);
 run(\"Clear Results\");
 
 list = getFileList(inputDir);
+processedCount = 0;
 for (i = 0; i < list.length; i++) {{
     name = list[i];
     if (endsWith(name, \"/\"))
@@ -309,6 +310,7 @@ for (i = 0; i < list.length; i++) {{
     if (!shouldProcess(name, extensionList))
         continue;
     path = inputDir + name;
+    print(\"Processing: \" + path);
     open(path);
     run(\"8-bit\");
     setOption(\"BlackBackground\", false);
@@ -338,11 +340,14 @@ for (i = 0; i < list.length; i++) {{
     setResult(\"Threshold Applied\", row, thresholdLabel);
     updateResults();
     close();
+    processedCount++;
 }}
 
 saveAs(\"Results\", outputFile);
 run(\"Clear Results\");
 setBatchMode(false);
+print(\"Processed \" + processedCount + \" image(s).\");
+print(\"Results saved to \" + outputFile);
 
 function shouldProcess(name, extensionList) {{
     lower = toLowerCase(name);
@@ -365,9 +370,12 @@ def _imagej_command_variants(imagej_executable: Path, macro_path: Path) -> List[
 
     executable = str(imagej_executable)
     commands: List[List[str]] = [
-        [executable, "--headless", "-batch", str(macro_path)],
-        [executable, "--ij2", "--headless", "--console", "-macro", str(macro_path)],
-        [executable, "-batch", str(macro_path)],
+        [executable, "--headless", "--console", "--macro", str(macro_path)],
+        [executable, "--headless", "--macro", str(macro_path)],
+        [executable, "--ij2", "--headless", "--console", "--macro", str(macro_path)],
+        [executable, "--ij2", "--headless", "--macro", str(macro_path)],
+        [executable, "--headless", "--console", "-batch", str(macro_path), ""],
+        [executable, "--headless", "-batch", str(macro_path), ""],
     ]
 
     # Remove duplicates while preserving order.
@@ -399,11 +407,31 @@ def run_imagej_macro(imagej_executable: Path, macro_path: Path, results_csv: Pat
         if results_csv.exists():
             results_csv.unlink()
         try:
-            subprocess.run(command, check=True)
+            completed = subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         except FileNotFoundError as exc:  # pragma: no cover - runtime guard
             raise SystemExit(f"ImageJ executable not found: {imagej_executable}") from exc
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
+            stdout_text = (exc.stdout or "").strip()
+            stderr_text = (exc.stderr or "").strip()
+            if stdout_text:
+                print("ImageJ exited with an error. Output:\n" + stdout_text)
+            if stderr_text:
+                print("Error output:\n" + stderr_text, file=sys.stderr)
             continue
+
+        stdout_text = completed.stdout.strip()
+        stderr_text = completed.stderr.strip()
+        if stdout_text:
+            print("ImageJ output:\n" + stdout_text)
+        if stderr_text:
+            print("ImageJ error output:\n" + stderr_text, file=sys.stderr)
+
         if results_csv.exists():
             return
 
