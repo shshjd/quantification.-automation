@@ -1,1 +1,1 @@
-openpyxl
+# No external dependencies required.
