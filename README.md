@@ -37,7 +37,7 @@ You will be prompted for:
 2. The directory where the results CSV should be saved.
 3. The directory where run logs should be written.
 
-The prompts default to the project’s own `input_images`, `results`, and `run_logs` folders (regardless of where you launch the script from). Press **Enter** to accept a suggested path or provide any other directory. The script trims accidental leading/trailing spaces, expands `~`, and preserves the exact folder you type—whether you drag a path from Finder or paste an absolute location. If a supplied directory does not exist, the script offers to create it.
+The prompts default to the project’s own `input_images`, `results`, and `run_logs` folders (regardless of where you launch the script from). Press **Enter** to accept a suggested path or provide any other directory. If a supplied directory does not exist, the script offers to create it.
 
 Before ImageJ launches, the script lists every supported image it finds in the chosen input directory. If no compatible files are present, it stops immediately with an error so you know why nothing ran. After the headless run finishes, it prints the last ten log entries so you can see which images were processed and whether any were skipped.
 

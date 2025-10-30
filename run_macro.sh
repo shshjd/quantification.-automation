@@ -3,24 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-trim_whitespace() {
-  local value="$1"
-  value="${value#${value%%[![:space:]]*}}"
-  value="${value%${value##*[![:space:]]}}"
-  printf '%s' "$value"
-}
-
-normalize_path() {
-  local raw="$1"
-  local expanded
-  expanded="${raw/#\~/$HOME}"
-  if [[ -d "$expanded" ]]; then
-    (cd "$expanded" && pwd)
-  else
-    printf '%s' "$expanded"
-  fi
-}
-
 prompt_directory() {
   local prompt_text="$1"
   local default_value="${2-}"
@@ -32,14 +14,13 @@ prompt_directory() {
     else
       read -r -p "$prompt_text: " response || true
     fi
-    response="$(trim_whitespace "$response")"
+    response="${response//\~/$(printf '%s' "$HOME")}" # expand leading ~
     if [[ -z "$response" ]]; then
       echo "Please provide a directory path." >&2
       continue
     fi
-    response="$(normalize_path "$response")"
+    response="$(python3 -c 'import os, sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))' "$response")"
     if [[ -d "$response" ]]; then
-      response="$(cd "$response" && pwd)"
       echo "$response"
       return 0
     fi
@@ -47,7 +28,6 @@ prompt_directory() {
     case "$create" in
       [yY][eE][sS]|[yY])
         mkdir -p "$response"
-        response="$(cd "$response" && pwd)"
         echo "$response"
         return 0
         ;;
