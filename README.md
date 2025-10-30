@@ -41,7 +41,7 @@ The prompts default to the project’s own `input_images`, `results`, and `run_l
 
 Before ImageJ launches, the script lists every supported image it finds in the chosen input directory. If no compatible files are present, it stops immediately with an error so you know why nothing ran. After the headless run finishes, it prints the last ten log entries so you can see which images were processed and whether any were skipped.
 
-The script assumes ImageJ is installed at `/Applications/ImageJ/ImageJ.app/Contents/MacOS/ImageJ`. If your installation lives elsewhere, set the `IMAGEJ_APP` environment variable before running:
+By default the helper script looks for the native macOS binary at `/Applications/ImageJ.app/Contents/MacOS/ImageJ-macosx` and falls back to the launcher script if necessary. If your installation lives elsewhere—or if ImageJ opens a GUI instead of running headlessly—point `IMAGEJ_APP` at the correct executable before launching:
 
 ```bash
 IMAGEJ_APP="/path/to/ImageJ" ./run_macro.sh

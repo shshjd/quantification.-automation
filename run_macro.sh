@@ -19,12 +19,7 @@ prompt_directory() {
       echo "Please provide a directory path." >&2
       continue
     fi
-    response="$(python3 - <<'PY'
-import os, sys
-path = sys.stdin.read().strip()
-print(os.path.abspath(os.path.expanduser(path)))
-PY
-<<<"$response")"
+    response="$(python3 -c 'import os, sys; print(os.path.abspath(os.path.expanduser(sys.argv[1])))' "$response")"
     if [[ -d "$response" ]]; then
       echo "$response"
       return 0
@@ -44,7 +39,20 @@ PY
 }
 
 if [[ -z "${IMAGEJ_APP:-}" ]]; then
-  IMAGEJ_APP="/Applications/ImageJ/ImageJ.app/Contents/MacOS/ImageJ"
+  IMAGEJ_APP="/Applications/ImageJ.app/Contents/MacOS/ImageJ-macosx"
+fi
+
+if [[ -d "${IMAGEJ_APP}" ]]; then
+  if [[ -x "${IMAGEJ_APP}/Contents/MacOS/ImageJ-macosx" ]]; then
+    IMAGEJ_APP="${IMAGEJ_APP}/Contents/MacOS/ImageJ-macosx"
+  elif [[ -x "${IMAGEJ_APP}/Contents/MacOS/ImageJ" ]]; then
+    IMAGEJ_APP="${IMAGEJ_APP}/Contents/MacOS/ImageJ"
+  fi
+elif [[ -f "${IMAGEJ_APP}" ]]; then
+  imagej_dir="$(dirname "${IMAGEJ_APP}")"
+  if [[ "$(basename "${IMAGEJ_APP}")" == "ImageJ" && -x "${imagej_dir}/ImageJ-macosx" ]]; then
+    IMAGEJ_APP="${imagej_dir}/ImageJ-macosx"
+  fi
 fi
 
 if [[ ! -x "${IMAGEJ_APP}" ]]; then
@@ -65,7 +73,7 @@ echo "Using input directory:   ${input_dir}"
 echo "Using results directory: ${output_dir}"
 echo "Using run logs directory: ${log_dir}"
 
-image_listing="$(python3 - <<'PY' "${input_dir}"
+image_listing="$(python3 - "${input_dir}" <<'PY'
 import os, sys
 from pathlib import Path
 
