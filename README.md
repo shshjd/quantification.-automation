@@ -37,7 +37,9 @@ You will be prompted for:
 2. The directory where the results CSV should be saved.
 3. The directory where run logs should be written.
 
-The prompts display the current working directory's `input_images`, `results`, and `run_logs` folders as suggestions. You can press **Enter** to accept a suggested path or provide any other directory. If a supplied directory does not exist, the script offers to create it.
+The prompts default to the project’s own `input_images`, `results`, and `run_logs` folders (regardless of where you launch the script from). Press **Enter** to accept a suggested path or provide any other directory. If a supplied directory does not exist, the script offers to create it.
+
+Before ImageJ launches, the script lists every supported image it finds in the chosen input directory. If no compatible files are present, it stops immediately with an error so you know why nothing ran. After the headless run finishes, it prints the last ten log entries so you can see which images were processed and whether any were skipped.
 
 The script assumes ImageJ is installed at `/Applications/ImageJ/ImageJ.app/Contents/MacOS/ImageJ`. If your installation lives elsewhere, set the `IMAGEJ_APP` environment variable before running:
 
@@ -60,4 +62,4 @@ You can also run ImageJ manually without the helper script:
 2. Run the macro headlessly or via the helper script.
 3. Compare the generated CSV against manual measurements performed in ImageJ.
 
-Each run appends to the specified `run.log` with timestamps so you can keep track of processed files.
+Each run appends to the specified `run.log` with timestamps so you can keep track of processed files, skipped items, and any errors that occurred.

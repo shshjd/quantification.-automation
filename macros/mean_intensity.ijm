@@ -34,38 +34,62 @@ macro "Batch Mean Intensity" {
     run("Set Measurements...", "mean redirect=None decimal=6");
     setOption("Redirect None", true);
     setOption("ScaleConversions", false);
+    setOption("DisablePopupErrors", true);
 
     fileList = getFileList(inputDir);
     processedCount = 0;
+    skippedCount = 0;
+    errorCount = 0;
 
     for (i = 0; i < fileList.length; i++) {
         name = fileList[i];
         path = inputDir + name;
-        if (File.isDirectory(path))
+        if (File.isDirectory(path)) {
+            report(logDir, "Skipping directory: " + path);
+            skippedCount++;
             continue;
-        if (!isImageFile(name))
+        }
+        if (!isImageFile(name)) {
+            report(logDir, "Skipping non-image file: " + path);
+            skippedCount++;
             continue;
+        }
 
-        logMessage = "Processing " + path;
-        print(logMessage);
-        appendLog(logDir, logMessage);
+        report(logDir, "Processing " + name);
 
+        beforeOpen = nImages;
         open(path);
+        afterOpen = nImages;
+        if (afterOpen == beforeOpen) {
+            report(logDir, "Failed to open: " + path);
+            errorCount++;
+            continue;
+        }
+
         run("32-bit");
+
+        beforeMeasure = nResults;
         run("Measure");
+        if (nResults == beforeMeasure) {
+            report(logDir, "No measurement recorded for: " + path);
+            close();
+            errorCount++;
+            continue;
+        }
+
         close();
         processedCount++;
     }
 
     if (processedCount == 0) {
         message = "No image files found in " + inputDir;
-        print(message);
-        appendLog(logDir, message);
+        report(logDir, message);
     }
 
     resultsPath = buildResultsPath(outputDir);
     saveAs("Results", resultsPath);
-    appendLog(logDir, "Saved results to " + resultsPath);
+    report(logDir, "Saved results to " + resultsPath);
+    report(logDir, buildSummary(processedCount, skippedCount, errorCount));
 
     setBatchMode(false);
 }
@@ -139,6 +163,15 @@ function isImageFile(name) {
 function appendLog(logDir, message) {
     timestamp = getTimestamp();
     File.append(timestamp + " " + message + "\n", logDir + "run.log");
+}
+
+function report(logDir, message) {
+    print(message);
+    appendLog(logDir, message);
+}
+
+function buildSummary(processed, skipped, errors) {
+    return "Summary: processed=" + processed + ", skipped=" + skipped + ", errors=" + errors + ".";
 }
 
 function buildResultsPath(outputDir) {
