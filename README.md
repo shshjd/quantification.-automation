@@ -1,65 +1,83 @@
-# ImageJ Mean Intensity Automation Project
+# Image Quantification Automation
 
-This project packages an ImageJ macro and an interactive helper script for measuring the mean intensity of multiple images via ImageJ's headless mode. Rather than relying on preset folders, the script prompts you for the directories to use at runtime.
+This repository contains a command-line tool for macOS that automates an image quantification workflow **using your existing Ima
+geJ installation**. The program collects every piece of configuration it needs—ImageJ location, image folder, thresholdin
+g method, measurements, and Excel export destination—before a single image is processed.
 
-## Macro Overview
+## Requirements
 
-The `macros/mean_intensity.ijm` script:
-
-- Ensures ImageJ is configured to measure **mean intensity** with six decimals and no scaling when converting to 32-bit.
-- Iterates over every supported image file in the chosen input directory (TIFF, PNG, JPEG, BMP, GIF).
-- Converts each image to 32-bit, measures the whole image, and appends the measurement to the Results table.
-- Saves a timestamped CSV of the Results table in your selected results directory.
-- Logs each processed image and the saved results path to the designated log directory.
-
-All three directories (`input`, `output`, and `log`) must be provided as comma-separated key/value arguments (`input=`, `output=`, `log=`) when the macro is invoked. The helper script described below collects these paths for you.
-
-## One-Time ImageJ Preferences
-
-Before running the macro, open ImageJ normally and configure:
-
-1. **Edit → Options → Conversions** → uncheck *Scale when converting*.
-2. **Analyze → Set Measurements…** → select only *Mean*, set *Decimal Places* to 6.
-
-These preferences ensure identical results between manual and automated measurements.
-
-## Running Headlessly
-
-On macOS, execute the helper script:
+1. A working copy of [ImageJ](https://imagej.nih.gov/ij/) installed on your Mac. The
+ script runs ImageJ headlessly, so make sure it launches normally before using the automation.
+2. Python 3.9+ with the `openpyxl` package:
 
 ```bash
-./run_macro.sh
+python3 -m pip install -r requirements.txt
 ```
 
-You will be prompted for:
+> 💡 **Tip:** If you do not already have the package installed system-wide, consider creating a virtual environment first:
+>
+> ```bash
+> python3 -m venv .venv
+> source .venv/bin/activate
+> python3 -m pip install -r requirements.txt
+> ```
 
-1. The directory that contains the images to measure.
-2. The directory where the results CSV should be saved.
-3. The directory where run logs should be written.
+## Usage
 
-The prompts default to the project’s own `input_images`, `results`, and `run_logs` folders (regardless of where you launch the script from). Press **Enter** to accept a suggested path or provide any other directory. If a supplied directory does not exist, the script offers to create it.
-
-Before ImageJ launches, the script lists every supported image it finds in the chosen input directory. If no compatible files are present, it stops immediately with an error so you know why nothing ran. After the headless run finishes, it prints the last ten log entries so you can see which images were processed and whether any were skipped.
-
-By default the helper script looks for the native macOS binary at `/Applications/ImageJ.app/Contents/MacOS/ImageJ-macosx` and falls back to the launcher script if necessary. If your installation lives elsewhere—or if ImageJ opens a GUI instead of running headlessly—point `IMAGEJ_APP` at the correct executable before launching:
+1. Confirm ImageJ opens correctly on your machine (double-click the application and make sure it starts without errors).
+2. Place all images you want to quantify in a single folder. Supported formats include `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`,
+ and `.bmp`.
+3. Run the script and answer the prompts:
 
 ```bash
-IMAGEJ_APP="/path/to/ImageJ" ./run_macro.sh
+python3 quantify_images.py
 ```
 
-You can also run ImageJ manually without the helper script:
+### Interactive configuration walkthrough
 
-```bash
-/Applications/ImageJ/ImageJ.app/Contents/MacOS/ImageJ \
-  --headless \
-  -macro "$(pwd)/macros/mean_intensity.ijm" \
-  "input=/path/to/images,output=/path/to/results,log=/path/to/logs"
-```
+When you run the command, the script asks a series of questions so it can fully configure itself before launching ImageJ:
 
-## Validating the Workflow
+1. **ImageJ application path** – Paste the `.app` bundle (for example `/Applications/ImageJ.app`) or the executable inside `Content
+s/MacOS`. The script automatically resolves the actual binary that will be launched headlessly.
+2. **Image folder** – Provide the directory containing the images to process. Only the top-level files in that folder are touched
+; subdirectories are ignored.
+3. **Threshold method** – Choose one of the following:
+   * `none` – Convert to grayscale and 32-bit but do not limit measurements to a thresholded region.
+   * `otsu` – Use ImageJ’s Otsu auto-threshold and limit measurements to the resulting mask.
+   * `manual` – Supply an explicit lower threshold between 0 and 255. Measurements are limited to pixels above this threshold.
+4. **Measurements** – Enter a comma-separated list of measurement keys. Press enter to accept the default set (`mean_intensity`, `
+std_dev`, `sum_intensity`, `foreground_area`). Each key maps directly to ImageJ measurements:
+   * `mean_intensity` → Mean
+   * `std_dev` → Standard Deviation
+   * `sum_intensity` → Integrated Density
+   * `foreground_area` → Area (pixel count)
+   * `min_intensity` → Minimum intensity
+   * `max_intensity` → Maximum intensity
+5. **Excel output path** – Accept the suggested destination inside your image folder or supply another `.xlsx` path. The director
+y is created automatically when it doesn’t exist.
+6. **Confirmation** – Review a summary of your selections and type `y` to start processing. Typing anything else cancels the run b
+efore ImageJ launches.
 
-1. Place a few sample images in the input directory of your choice.
-2. Run the macro headlessly or via the helper script.
-3. Compare the generated CSV against manual measurements performed in ImageJ.
+After confirmation the script will:
 
-Each run appends to the specified `run.log` with timestamps so you can keep track of processed files, skipped items, and any errors that occurred.
+1. Generate an ImageJ macro tailored to your answers.
+2. Run ImageJ in headless mode to process every supported image in the chosen folder.
+3. For each file, convert it to 8-bit grayscale, apply the selected threshold (if any), convert to 32-bit, and run the requested m
+easur
+ements with ImageJ’s measurement engine.
+4. Export ImageJ’s results table to a temporary CSV file and convert it into an Excel workbook at your chosen destination.
+
+### Understanding the Excel report
+
+The workbook contains a single sheet named **Measurements**. Each row corresponds to a processed image and includes:
+
+| Column | Description |
+| ------ | ----------- |
+| `Image` | The filename processed by ImageJ. |
+| `Threshold Applied` | The lower threshold value used, or `-` when no threshold was applied. |
+| Measurement columns | One column per measurement you selected (e.g., *Mean Intensity*, *Foreground Area (px)*). |
+
+You can re-run the program on the same folder at any time—existing Excel files are overwritten only after a successful export.
+
+If you need to adapt the workflow (for example, additional ImageJ measurements or nested folder traversal), feel free to share th
+e desired changes and they can be incorporated into a follow-up script update.
