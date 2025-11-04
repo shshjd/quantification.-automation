@@ -33,4 +33,5 @@ if [ ! -f "$MACRO_PATH" ]; then
   exit 1
 fi
 
-"$FIJI_EXEC" --headless -macro "$MACRO_PATH" "list=$LIST_FILE output=$OUTPUT_FILE"
+ARGS=$'list='"$LIST_FILE"$'\noutput='"$OUTPUT_FILE"
+"$FIJI_EXEC" --headless -macro "$MACRO_PATH" "$ARGS"
