@@ -43,7 +43,7 @@ macro "Batch Area Measurement" {
 
     run("Clear Results");
     setBatchMode(true);
-    run("Set Measurements...", "area integrated redirect=None decimal=3");
+    run("Set Measurements...", "area mean standard integrated redirect=None decimal=3");
 
     for (i = 0; i < paths.length; i++) {
         path = replace(paths[i], "\r", "");
