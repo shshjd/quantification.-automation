@@ -1,7 +1,37 @@
 macro "Batch Area Measurement" {
-    listPath = File.openDialog("Select text file with image paths");
-    if (listPath == null || listPath == "") {
-        exit("No path list selected.");
+    args = getArgument();
+    listPath = "";
+    outputPath = "";
+
+    if (args != "") {
+        lines = split(args, "\n");
+        for (i = 0; i < lines.length; i++) {
+            line = replace(lines[i], "\r", "");
+            if (line == "")
+                continue;
+            sep = indexOf(line, "=");
+            if (sep < 0)
+                continue;
+            key = substring(line, 0, sep);
+            value = substring(line, sep + 1, lengthOf(line));
+            if (key == "list")
+                listPath = value;
+            else if (key == "output")
+                outputPath = value;
+        }
+
+        if (listPath == "" || outputPath == "") {
+            exit("Headless mode requires both 'list' and 'output' arguments.");
+        }
+    } else {
+        listPath = File.openDialog("Select text file with image paths");
+        if (listPath == null || listPath == "") {
+            exit("No path list selected.");
+        }
+        outputPath = File.saveDialog("Save results table", "batch-area-measurements.csv");
+        if (outputPath == null || outputPath == "") {
+            exit("No output location selected.");
+        }
     }
 
     contents = File.openAsString(listPath);
@@ -11,16 +41,9 @@ macro "Batch Area Measurement" {
 
     paths = split(contents, "\n");
 
-    useFloat = getBoolean("Convert images to 32-bit? (Cancel for 8-bit)");
-
-    outputPath = File.saveDialog("Save results table", "batch-area-measurements.csv");
-    if (outputPath == null || outputPath == "") {
-        exit("No output location selected.");
-    }
-
     run("Clear Results");
     setBatchMode(true);
-    run("Set Measurements...", "area integrated redirect=None decimal=3");
+    run("Set Measurements...", "area mean standard integrated redirect=None decimal=3");
 
     for (i = 0; i < paths.length; i++) {
         path = replace(paths[i], "\r", "");
@@ -32,10 +55,7 @@ macro "Batch Area Measurement" {
         }
 
         open(path);
-        if (useFloat)
-            run("32-bit");
-        else
-            run("8-bit");
+        run("32-bit");
         run("Grays");
         run("Measure");
         close();
